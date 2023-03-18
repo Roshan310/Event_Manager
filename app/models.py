@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey
 from sqlalchemy.orm import relationship
 from .database import Base
 
@@ -17,4 +17,13 @@ class Event(Base):
     id = Column(Integer, primary_key=True, index=True)
     event_name = Column(String, unique=True, index=True)
     event_details = Column(String, nullable=False)
-    rsvp = Column(Boolean, nullable=False, default=False)
+    rsvp = relationship('Rsvp', back_populates='event')
+
+
+class Rsvp(Base):
+
+    __tablename = 'rsvps'
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id'))
+    event_id = Column(Integer, ForeignKey('events.id'))
+
