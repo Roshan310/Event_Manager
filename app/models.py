@@ -27,3 +27,4 @@ class Rsvp(Base):
     user_id = Column(Integer, ForeignKey('users.id'))
     event_id = Column(Integer, ForeignKey('events.id'))
 
+                
