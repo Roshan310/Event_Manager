@@ -21,9 +21,6 @@ def get_db():
 
 models.Base.metadata.create_all(bind=engine)
 
-@app.get('/')
-def test():
-    return {'msg': 'I am working fine!!!'}
 
 @app.get('/items')
 def items(token: Annotated[str, Depends(oauth2_scheme)]):
