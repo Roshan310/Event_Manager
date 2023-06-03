@@ -29,3 +29,7 @@ def my_events(db: Session = Depends(database.get_db), current_user: int = Depend
     events = db.query(models.Event).filter(models.Event.user_id == current_user.id).all()
     return events
 
+@router.get('/registered_events')
+def my_registered_events(db: Session = Depends(database.get_db), current_user: int = Depends(oauth2.get_current_user)):
+    result = db.query(models.Event).join(models.Rsvp, models.Event.id == models.Rsvp.event_id, isouter=True).filter(models.Rsvp.user_id==current_user.id).all()
+    return result
