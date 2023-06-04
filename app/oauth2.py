@@ -5,14 +5,13 @@ from typing import Union, Any
 from jose import jwt, JWTError
 from . import schemas, models, database
 from sqlalchemy.orm import Session
+from .config import settings
 
 oauth_scheme = OAuth2PasswordBearer('login')
 
-ACCESS_TOKEN_EXPIRES_MINUTES = 30 #30 Minutes
-REFRESH_TOKEN_EXPIRES_MINUTES = 60 * 24 * 7 #7 days
-ALGORITHM = "HS256"
-JWT_SECRET_KEY = 'ABCDEFGH123'
-JWT_REFRESH_KEY = 'ABCDEFGH23'
+ACCESS_TOKEN_EXPIRES_MINUTES = settings.access_token_expires_minutes 
+ALGORITHM = settings.algorithm
+JWT_SECRET_KEY = settings. jwt_secret_key
 
 def create_access_token(subject: Union[str, Any], expires_delta: int = None):
     if expires_delta is not None:
