@@ -26,7 +26,7 @@ oauth_scheme = OAuth2PasswordBearer('login')
 
 ACCESS_TOKEN_EXPIRES_MINUTES = settings.access_token_expires_minutes 
 ALGORITHM = settings.algorithm
-JWT_SECRET_KEY = settings. jwt_secret_key
+JWT_SECRET_KEY = settings.jwt_secret_key
 
 def create_access_token(subject: Union[str, Any], expires_delta: int = None):
     if expires_delta is not None:
@@ -42,11 +42,8 @@ def create_access_token(subject: Union[str, Any], expires_delta: int = None):
 
 def verify_access_token(token: str, credential_exception):
     try:
-        print("Payload incoming")
         payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[ALGORITHM])
-        print(payload)
         id = payload.get('id')
-        print(f"ID: {id}")
         if id is None:
             print("No id")
         token_data = token_schemas.TokenData(id=id)

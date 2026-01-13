@@ -10,6 +10,7 @@ def get_event_by_id(db: Session, event_id: int):
 
 def get_user_events(db: Session, user_id: int):
     user_event =  db.query(Event).filter(Event.user_id == user_id).all()
+    print(f"User events: {user_event}")
     if not user_event:
         return None
     return user_event
