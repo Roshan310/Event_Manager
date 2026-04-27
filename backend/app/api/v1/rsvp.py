@@ -15,4 +15,4 @@ router = APIRouter(
 
 @router.post('/')
 def rsvp(rsvp: rsvp.Rsvp, db: Session = Depends(database.get_db), current_user: int = Depends(get_current_user)):
-    return rsvp_service.create_rsvp(db, rsvp, current_user.id)
+    return rsvp_service.create_rsvp(db, rsvp, current_user)

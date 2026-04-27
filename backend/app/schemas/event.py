@@ -7,6 +7,11 @@ class EventCreate(BaseModel):
     event_details: str
     user_id: Optional[int]
 
+
+class EventUpdate(BaseModel):
+    event_name: Optional[str] = None
+    event_details: Optional[str] = None
+
 class EventShow(BaseModel):
     id: int
     event_name: str

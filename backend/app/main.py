@@ -24,6 +24,8 @@ You will be able to:
 * **Read users** 
 """
 
+
+
 app = FastAPI(
     title='Event Manager',
     description=description,
@@ -47,3 +49,7 @@ app.include_router(event.router)
 app.include_router(user.router)
 app.include_router(auth.router)
 app.include_router(rsvp.router)
+
+@app.get("/health")
+def api_health():
+    return {"msg": "Running sucessfully"}
