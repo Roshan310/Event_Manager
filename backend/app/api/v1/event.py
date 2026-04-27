@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import List
 from app.core import security
 from app.db import database
 from app.schemas.event import EventCreate, EventShow, EventUpdate
@@ -12,7 +11,7 @@ router = APIRouter(
     tags=['Events']
 )
 
-@router.get('/')
+@router.get('/', response_model=PaginatedResponse[EventShow])
 def get_events(
     limit: int = Query(10, ge=1, le=100, description="Items per page"),
     offset: int = Query(0, ge=0, description="Items to skip"),
@@ -31,7 +30,7 @@ def add_event(request: EventCreate, db: Session = Depends(database.get_db), curr
         raise HTTPException(status_code=400, detail="Event creation failed")
     return new_event
 
-@router.get('/my_events')
+@router.get('/my_events', response_model=PaginatedResponse[EventShow])
 def my_events(
     limit: int = Query(10, ge=1, le=100, description="Items per page"),
     offset: int = Query(0, ge=0, description="Items to skip"),
@@ -41,7 +40,7 @@ def my_events(
     user_events, total = event_service.my_events(db, current_user.id, limit, offset)
     return PaginatedResponse.create(items=user_events, total=total, limit=limit, offset=offset)
 
-@router.get('/registered_events')
+@router.get('/registered_events', response_model=PaginatedResponse[EventShow])
 def my_registered_events(
     limit: int = Query(10, ge=1, le=100, description="Items per page"),
     offset: int = Query(0, ge=0, description="Items to skip"),

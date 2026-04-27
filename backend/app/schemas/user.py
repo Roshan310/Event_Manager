@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, ConfigDict
 from typing import Literal
 
 UserRole = Literal['admin', 'organizer', 'user']
@@ -15,5 +15,4 @@ class UserOut(BaseModel):
     email: str
     role: UserRole
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)

@@ -23,10 +23,19 @@ def create_rsvp(db, rsvp: rsvp_schema.Rsvp, actor: user_model.User):
 
         new_rsvp = rsvp_model.Rsvp(user_id=actor.id, event_id=rsvp.event_id)
         rsvp_repo.create_rsvp(db, new_rsvp)
-        return {'msg': 'Successfully registered for the event! Congrats!!'}
+        return {
+            'msg': 'Successfully registered for the event! Congrats!!',
+            'send_email': True,
+            'email_data': {
+                'recipient_email': actor.email,
+                'recipient_name': actor.name,
+                'event_name': event.event_name,
+                'event_details': event.event_details,
+            },
+        }
 
     if not found_rsvp:
         raise HTTPException(status_code=404, detail="Doesn't exist")
 
     rsvp_repo.delete_rsvp(db, rsvp.event_id, actor.id)
-    return {'msg': 'Canceled the registration!!'}
+    return {'msg': 'Canceled the registration!!', 'send_email': False, 'email_data': None}

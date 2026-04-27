@@ -9,6 +9,7 @@ class Setting(BaseSettings):
     algorithm: str
     jwt_secret_key: str
     access_token_expires_minutes:int
+    app_password: str = ""
 
     class Config:
         env_file = ".env"

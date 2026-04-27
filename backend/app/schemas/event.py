@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional
 from app.schemas.user import UserOut
 
@@ -18,5 +18,4 @@ class EventShow(BaseModel):
     event_details: str
     created_by: UserOut
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)

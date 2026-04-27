@@ -1,7 +1,5 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from typing import List
-
 from ...db import database
 from app.models.user import User as user_model
 from app.schemas.user import UserCreate, UserOut
@@ -14,7 +12,7 @@ router = APIRouter(
     tags=['Users']
 )
 
-@router.get('/')
+@router.get('/', response_model=PaginatedResponse[UserOut])
 def get_user(
     limit: int = Query(10, ge=1, le=100, description="Items per page"),
     offset: int = Query(0, ge=0, description="Items to skip"),
