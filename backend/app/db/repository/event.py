@@ -1,49 +1,71 @@
+import uuid
+from datetime import datetime
+
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
-from app.models.event import Event
-from app.models.rsvp import Rsvp
 
-def get_all_events(db: Session, limit: int = 10, offset: int = 0):
-    """Get all events with pagination"""
-    query = db.query(Event)
-    total = query.count()
-    events = query.offset(offset).limit(limit).all()
+from app.models.event import Event, EventStatus
+from app.models.registration import Registration, RegistrationStatus
+
+
+def by_id(db: Session, event_id: uuid.UUID, *, for_update: bool = False) -> Event | None:
+    statement = select(Event).where(Event.id == event_id)
+    if for_update:
+        statement = statement.with_for_update()
+    return db.scalar(statement)
+
+
+def list_public(db: Session, now: datetime, limit: int, offset: int) -> tuple[list[Event], int]:
+    condition = (Event.status == EventStatus.PUBLISHED, Event.ends_at > now)
+    total = db.scalar(select(func.count()).select_from(Event).where(*condition)) or 0
+    events = list(
+        db.scalars(
+            select(Event)
+            .where(*condition)
+            .order_by(Event.starts_at, Event.id)
+            .offset(offset)
+            .limit(limit)
+        )
+    )
     return events, total
 
-def get_event_by_id(db: Session, event_id: int):
-    return db.query(Event).filter(Event.id == event_id).first()
 
-def get_user_events(db: Session, user_id: int, limit: int = 10, offset: int = 0):
-    """Get user's created events with pagination"""
-    query = db.query(Event).filter(Event.user_id == user_id)
-    total = query.count()
-    user_event = query.offset(offset).limit(limit).all()
-    return user_event, total
-
-def create_event(db: Session, event: Event):
-    db.add(event)
-    db.commit()
-    db.refresh(event)
-    return event
-
-
-def update_event(db: Session, event: Event):
-    db.commit()
-    db.refresh(event)
-    return event
-
-
-def delete_event(db: Session, event: Event):
-    db.delete(event)
-    db.commit()
-
-def count_total_events(db: Session):
-    return db.query(Event).count() 
-
-def get_my_registered_events(db: Session, user_id: int, limit: int = 10, offset: int = 0):
-    """Get user's registered events with pagination"""
-    query = db.query(Event).join(
-        Rsvp, Event.id == Rsvp.event_id, isouter=True
-    ).filter(Rsvp.user_id == user_id)
-    total = query.count()
-    events = query.offset(offset).limit(limit).all()
+def list_owned(
+    db: Session, organizer_id: uuid.UUID, limit: int, offset: int
+) -> tuple[list[Event], int]:
+    condition = Event.organizer_id == organizer_id
+    total = db.scalar(select(func.count()).select_from(Event).where(condition)) or 0
+    events = list(
+        db.scalars(
+            select(Event)
+            .where(condition)
+            .order_by(Event.created_at.desc(), Event.id)
+            .offset(offset)
+            .limit(limit)
+        )
+    )
     return events, total
+
+
+def list_all(db: Session, limit: int, offset: int) -> tuple[list[Event], int]:
+    total = db.scalar(select(func.count()).select_from(Event)) or 0
+    events = list(
+        db.scalars(
+            select(Event).order_by(Event.created_at.desc(), Event.id).offset(offset).limit(limit)
+        )
+    )
+    return events, total
+
+
+def confirmed_count(db: Session, event_id: uuid.UUID) -> int:
+    return (
+        db.scalar(
+            select(func.count())
+            .select_from(Registration)
+            .where(
+                Registration.event_id == event_id,
+                Registration.status == RegistrationStatus.CONFIRMED,
+            )
+        )
+        or 0
+    )

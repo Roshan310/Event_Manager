@@ -1,11 +1,35 @@
-from sqlalchemy import Column, Integer, String
+import uuid
+from datetime import datetime
+from enum import StrEnum
+
+from sqlalchemy import Boolean, DateTime, Enum, String, func
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
 from app.db.database import Base
 
-class User(Base):
 
-    __tablename__ = 'users'
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, index=True, nullable=False)
-    email = Column(String, index=True, nullable=False)
-    password = Column(String, index=True, nullable=False)
-    role = Column(String, index=True, nullable=False, default='user')
+class UserRole(StrEnum):
+    ADMIN = "admin"
+    ORGANIZER = "organizer"
+    ATTENDEE = "attendee"
+
+
+class User(Base):
+    __tablename__ = "users"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    email: Mapped[str] = mapped_column(String(320), nullable=False, unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    role: Mapped[UserRole] = mapped_column(
+        Enum(UserRole, name="user_role", values_callable=lambda cls: [e.value for e in cls]),
+        nullable=False,
+        default=UserRole.ATTENDEE,
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    events = relationship("Event", back_populates="organizer")
+    registrations = relationship("Registration", back_populates="attendee")

@@ -1,62 +1,64 @@
-from passlib.context import CryptContext
-from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
-from datetime import datetime, timedelta
-from typing import Union, Any
-from jose import jwt, JWTError
-from app.db import database
-from app.schemas import tokendata as token_schemas
-from app.models import user as user_model
-from sqlalchemy.orm import Session
-from .config import settings
+import hashlib
+import secrets
+import uuid
+from datetime import UTC, datetime, timedelta
+
+from jose import JWTError, jwt
+from pwdlib import PasswordHash
+
+from app.core.config import settings
+from app.core.errors import DomainError
+
+password_hasher = PasswordHash.recommended()
 
 
-pwd_context = CryptContext(schemes=['bcrypt'], deprecated='auto')
+def hash_password(password: str) -> str:
+    return password_hasher.hash(password)
 
-class Hashing:
 
-    def hash(password: str):
-        return pwd_context.hash(password)
+def verify_password(plain_password: str, password_hash: str) -> bool:
+    return password_hasher.verify(plain_password, password_hash)
 
-    def verify_password(plain_password, hashed_password):
-        return pwd_context.verify(plain_password, hashed_password)
-    
 
-oauth_scheme = OAuth2PasswordBearer('login')
+def create_access_token(user_id: uuid.UUID) -> tuple[str, int]:
+    expires_in = settings.access_token_expires_minutes * 60
+    now = datetime.now(UTC)
+    payload = {
+        "sub": str(user_id),
+        "type": "access",
+        "iat": now,
+        "exp": now + timedelta(seconds=expires_in),
+        "iss": settings.jwt_issuer,
+        "aud": settings.jwt_audience,
+        "jti": str(uuid.uuid4()),
+    }
+    return jwt.encode(
+        payload, settings.jwt_secret_key.get_secret_value(), algorithm=settings.jwt_algorithm
+    ), expires_in
 
-ACCESS_TOKEN_EXPIRES_MINUTES = settings.access_token_expires_minutes 
-ALGORITHM = settings.algorithm
-JWT_SECRET_KEY = settings.jwt_secret_key
 
-def create_access_token(subject: Union[str, Any], expires_delta: int = None):
-    if expires_delta is not None:
-        expires_delta = datetime.utcnow()  + expires_delta
-
-    else:
-        expires_delta = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRES_MINUTES)
-
-    to_encode = {'exp': expires_delta, 'id': str(subject)}
-    jwt_encoded = jwt.encode(to_encode, JWT_SECRET_KEY, algorithm=ALGORITHM)
-
-    return jwt_encoded
-
-def verify_access_token(token: str, credential_exception):
+def decode_access_token(token: str) -> uuid.UUID:
     try:
-        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[ALGORITHM])
-        id = payload.get('id')
-        if id is None:
-            print("No id")
-        token_data = token_schemas.TokenData(id=id)
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret_key.get_secret_value(),
+            algorithms=[settings.jwt_algorithm],
+            issuer=settings.jwt_issuer,
+            audience=settings.jwt_audience,
+        )
+        if payload.get("type") != "access":
+            raise JWTError("wrong token type")
+        return uuid.UUID(payload["sub"])
+    except (JWTError, KeyError, ValueError) as exc:
+        raise DomainError(
+            "invalid_token", "Authentication token is invalid or expired", 401
+        ) from exc
 
-    except JWTError:
-        raise credential_exception
 
-    return token_data
+def new_refresh_token() -> tuple[str, str]:
+    raw = secrets.token_urlsafe(48)
+    return raw, hash_refresh_token(raw)
 
-def get_current_user(token: str = Depends(oauth_scheme), db: Session = Depends(database.get_db)):
-    credential_exception = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Could not validate',
-                                         headers={"WWW-Authenticate": "Bearer"})
-    token_data = verify_access_token(token, credential_exception)
-    user = db.query(user_model.User).filter(user_model.User.id == token_data.id).first()
-    return user
 
+def hash_refresh_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()

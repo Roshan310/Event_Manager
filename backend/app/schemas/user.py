@@ -1,18 +1,32 @@
-from pydantic import BaseModel, EmailStr, ConfigDict
-from typing import Literal
+import uuid
+from datetime import datetime
 
-UserRole = Literal['admin', 'organizer', 'user']
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
-class UserCreate(BaseModel):
-    name: str
+from app.models.user import UserRole
+
+
+class UserRegister(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=2, max_length=120)
     email: EmailStr
-    password: str
-    role: UserRole = 'user'
+    password: str = Field(min_length=10, max_length=128)
+
+    @field_validator("name")
+    @classmethod
+    def clean_name(cls, value: str) -> str:
+        return " ".join(value.split())
+
 
 class UserOut(BaseModel):
-    id: int
+    id: uuid.UUID
     name: str
-    email: str
+    email: EmailStr
     role: UserRole
-
+    is_active: bool
+    created_at: datetime
     model_config = ConfigDict(from_attributes=True)
+
+
+class RoleUpdate(BaseModel):
+    role: UserRole

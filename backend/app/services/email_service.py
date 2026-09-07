@@ -1,38 +1,27 @@
-import logging
 import smtplib
 from email.message import EmailMessage
 
 from app.core.config import settings
 
+SUBJECTS = {
+    "registration.confirmed": "Registration confirmed",
+    "registration.waitlisted": "You joined the waitlist",
+    "registration.promoted": "Your registration is now confirmed",
+    "registration.cancelled": "Registration cancelled",
+    "event.cancelled": "Event cancelled",
+}
 
-logger = logging.getLogger(__name__)
 
-SMTP_HOST = "smtp.gmail.com"
-SMTP_PORT = 587
-SMTP_USERNAME = "yuvrajaryal83@gmail.com"
-
-
-def send_rsvp_email(recipient_email: str, recipient_name: str, event_name: str, event_details: str) -> None:
-    if not settings.app_password:
-        logger.warning("SMTP app password is not configured; skipping RSVP confirmation email")
-        return
-
+def send_notification(topic: str, payload: dict[str, object]) -> None:
     message = EmailMessage()
-    message["Subject"] = f"RSVP confirmed: {event_name}"
-    message["From"] = SMTP_USERNAME
-    message["To"] = recipient_email
-    message.set_content(
-        f"Hello {recipient_name},\n\n"
-        f"Your RSVP for '{event_name}' has been confirmed.\n\n"
-        f"Event details:\n{event_details}\n\n"
-        f"Thanks for registering."
-    )
-
-    try:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+    message["Subject"] = f"{SUBJECTS.get(topic, 'Event update')}: {payload['event_title']}"
+    message["From"] = str(settings.smtp_from_email)
+    message["To"] = str(payload["email"])
+    update = SUBJECTS.get(topic, "There is an event update")
+    message.set_content(f"Hello {payload['name']},\n\n{update} for '{payload['event_title']}'.")
+    with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=15) as server:
+        if settings.smtp_use_tls:
             server.starttls()
-            server.login(SMTP_USERNAME, settings.app_password)
-            server.send_message(message)
-            print("RSVP confirmation email sent successfully!")
-    except Exception:
-        logger.exception("Failed to send RSVP confirmation email")
+        if settings.smtp_username:
+            server.login(settings.smtp_username, settings.smtp_password.get_secret_value())
+        server.send_message(message)
