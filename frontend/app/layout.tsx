@@ -1,20 +1,23 @@
-import type { Metadata } from 'next'
-import './globals.css'
-
+import type { Metadata } from "next";
+import "@fontsource-variable/inter";
+import "./globals.css";
+import { Providers } from "@/components/providers";
 export const metadata: Metadata = {
-  title: 'v0 App',
-  description: 'Created with v0',
-  generator: 'v0.dev',
-}
-
+  title: {
+    default: "Evently — Good events. Better connections.",
+    template: "%s | Evently",
+  },
+  description:
+    "Discover experiences worth sharing. Find your next event, meet your people, and make a little more of your everyday.",
+};
 export default function RootLayout({
   children,
-}: Readonly<{
-  children: React.ReactNode
-}>) {
+}: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <Providers>{children}</Providers>
+      </body>
     </html>
-  )
+  );
 }
