@@ -1,6 +1,7 @@
 import uuid
 from datetime import UTC, datetime, timedelta
 
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -35,6 +36,10 @@ def register(db: Session, request: UserRegister) -> User:
     )
     db.add(user)
     try:
+        db.flush()
+        from app.services.account_service import request_token
+
+        request_token(db, user.email, "verify", commit=False)
         db.commit()
     except IntegrityError as exc:
         db.rollback()
@@ -44,12 +49,13 @@ def register(db: Session, request: UserRegister) -> User:
 
 
 def _issue_pair(db: Session, user: User, family_id: uuid.UUID | None = None) -> TokenResponse:
-    access_token, expires_in = create_access_token(user.id)
+    family_id = family_id or uuid.uuid4()
+    access_token, expires_in = create_access_token(user.id, family_id, user.auth_version)
     raw_refresh, token_hash = new_refresh_token()
     db.add(
         RefreshToken(
             user_id=user.id,
-            family_id=family_id or uuid.uuid4(),
+            family_id=family_id,
             token_hash=token_hash,
             expires_at=datetime.now(UTC) + timedelta(days=settings.refresh_token_expires_days),
         )
@@ -61,8 +67,9 @@ def _issue_pair(db: Session, user: User, family_id: uuid.UUID | None = None) -> 
 
 
 def login(db: Session, email: str, password: str) -> TokenResponse:
-    user = user_repo.by_email(db, _normalize_email(email))
-    if not user or not verify_password(password, user.password_hash):
+    user = db.scalar(select(User).where(User.email == _normalize_email(email)).with_for_update())
+    valid = verify_password(password, user.password_hash if user else DUMMY_PASSWORD_HASH)
+    if not user or not valid:
         raise DomainError("invalid_credentials", "Email or password is incorrect", 401)
     if not user.is_active:
         raise DomainError("account_inactive", "This account is inactive", 403)
@@ -73,6 +80,7 @@ def login(db: Session, email: str, password: str) -> TokenResponse:
 
 def refresh(db: Session, raw_token: str) -> TokenResponse:
     now = datetime.now(UTC)
+    lock_token_user(db, raw_token)
     record = token_repo.by_hash(db, hash_refresh_token(raw_token), for_update=True)
     if not record:
         raise DomainError("invalid_refresh_token", "Refresh token is invalid", 401)
@@ -97,7 +105,33 @@ def refresh(db: Session, raw_token: str) -> TokenResponse:
 
 
 def logout(db: Session, raw_token: str) -> None:
+    lock_token_user(db, raw_token)
     record = token_repo.by_hash(db, hash_refresh_token(raw_token), for_update=True)
-    if record and record.revoked_at is None:
-        record.revoked_at = datetime.now(UTC)
+    if record:
+        token_repo.revoke_family(db, record.family_id, datetime.now(UTC))
         db.commit()
+
+
+DUMMY_PASSWORD_HASH = hash_password("constant-unusable-timing-padding-password")
+
+
+def lock_token_user(db: Session, raw_token: str) -> None:
+    user_id = db.scalar(
+        select(RefreshToken.user_id).where(RefreshToken.token_hash == hash_refresh_token(raw_token))
+    )
+    if user_id:
+        db.scalar(
+            select(User)
+            .where(User.id == user_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+
+
+def revoke_all(db: Session, user: User) -> None:
+    user.auth_version += 1
+    db.execute(
+        update(RefreshToken)
+        .where(RefreshToken.user_id == user.id, RefreshToken.revoked_at.is_(None))
+        .values(revoked_at=datetime.now(UTC))
+    )

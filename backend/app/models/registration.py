@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import DateTime, Enum, ForeignKey, UniqueConstraint, func
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -19,6 +19,7 @@ class Registration(Base):
     __tablename__ = "registrations"
     __table_args__ = (
         UniqueConstraint("event_id", "attendee_id", name="uq_registrations_event_attendee"),
+        Index("ix_registration_queue", "event_id", "status", "queued_at", "id"),
     )
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     event_id: Mapped[uuid.UUID] = mapped_column(
@@ -41,5 +42,9 @@ class Registration(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    queued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    ticket_nonce: Mapped[str | None] = mapped_column()
+    checked_in_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    checked_in_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     event = relationship("Event", back_populates="registrations")
     attendee = relationship("User", back_populates="registrations")

@@ -16,6 +16,9 @@ class RegistrationOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     cancelled_at: datetime | None
+    queued_at: datetime
+    checked_in_at: datetime | None = None
+    waitlist_position: int | None = None
     model_config = ConfigDict(from_attributes=True)
 
 

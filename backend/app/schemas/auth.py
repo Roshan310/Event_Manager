@@ -1,15 +1,17 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.schemas.user import UserOut
 
 
 class LoginRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     email: EmailStr
     password: str = Field(min_length=1, max_length=128)
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: str = Field(min_length=32)
+    model_config = ConfigDict(extra="forbid")
+    refresh_token: str = Field(min_length=32, max_length=256)
 
 
 class LogoutRequest(RefreshRequest):

@@ -12,10 +12,10 @@ class UserRegister(BaseModel):
     email: EmailStr
     password: str = Field(min_length=10, max_length=128)
 
-    @field_validator("name")
+    @field_validator("name", mode="before")
     @classmethod
-    def clean_name(cls, value: str) -> str:
-        return " ".join(value.split())
+    def clean_name(cls, value: object) -> object:
+        return " ".join(value.split()) if isinstance(value, str) else value
 
 
 class UserOut(BaseModel):
@@ -24,9 +24,11 @@ class UserOut(BaseModel):
     email: EmailStr
     role: UserRole
     is_active: bool
+    email_verified: bool = False
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
 
 class RoleUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     role: UserRole

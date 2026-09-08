@@ -32,6 +32,12 @@ class Event(Base):
     starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     capacity: Mapped[int] = mapped_column(Integer, nullable=False)
+    category_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("categories.id", ondelete="RESTRICT"), index=True
+    )
+    cover_filename: Mapped[str | None] = mapped_column(String(80))
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    ever_published: Mapped[bool] = mapped_column(default=False)
     status: Mapped[EventStatus] = mapped_column(
         Enum(EventStatus, name="event_status", values_callable=lambda cls: [e.value for e in cls]),
         nullable=False,

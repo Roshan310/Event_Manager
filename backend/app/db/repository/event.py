@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.event import Event, EventStatus
@@ -69,3 +69,62 @@ def confirmed_count(db: Session, event_id: uuid.UUID) -> int:
         )
         or 0
     )
+
+
+def search(
+    db: Session,
+    limit: int,
+    offset: int,
+    *,
+    public: bool = False,
+    organizer_id: uuid.UUID | None = None,
+    **filters: object,
+) -> tuple[list[Event], int]:
+    now = datetime.now().astimezone()
+    statement = select(Event)
+    if public:
+        statement = statement.where(Event.status == EventStatus.PUBLISHED, Event.ends_at > now)
+    if organizer_id:
+        statement = statement.where(Event.organizer_id == organizer_id)
+    if filters.get("q"):
+        term = str(filters["q"])
+        statement = statement.where(
+            or_(
+                Event.title.icontains(term, autoescape=True),
+                Event.description.icontains(term, autoescape=True),
+            )
+        )
+    if filters.get("location"):
+        statement = statement.where(
+            Event.location.icontains(str(filters["location"]), autoescape=True)
+        )
+    if filters.get("category_id"):
+        statement = statement.where(Event.category_id == filters["category_id"])
+    if filters.get("starts_after"):
+        statement = statement.where(Event.starts_at >= filters["starts_after"])
+    if filters.get("starts_before"):
+        statement = statement.where(Event.starts_at <= filters["starts_before"])
+    status = filters.get("status")
+    if status == "completed":
+        statement = statement.where(Event.status == EventStatus.PUBLISHED, Event.ends_at <= now)
+    elif status == "published":
+        statement = statement.where(Event.status == EventStatus.PUBLISHED, Event.ends_at > now)
+    elif status:
+        statement = statement.where(Event.status == status)
+    if filters.get("available_only"):
+        count = (
+            select(func.count(Registration.id))
+            .where(
+                Registration.event_id == Event.id,
+                Registration.status == RegistrationStatus.CONFIRMED,
+            )
+            .correlate(Event)
+            .scalar_subquery()
+        )
+        statement = statement.where(Event.capacity > count, Event.starts_at > now)
+    total = db.scalar(select(func.count()).select_from(statement.subquery())) or 0
+    sort = filters.get("sort", "starts_at" if public else "newest")
+    order = {"starts_at": Event.starts_at, "newest": Event.created_at.desc(), "title": Event.title}[
+        str(sort)
+    ]
+    return list(db.scalars(statement.order_by(order, Event.id).limit(limit).offset(offset))), total
