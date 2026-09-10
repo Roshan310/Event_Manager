@@ -1,5 +1,6 @@
 import uuid
-from typing import Annotated
+from datetime import datetime
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, Response, UploadFile
 from fastapi.responses import FileResponse
@@ -32,6 +33,12 @@ from app.schemas.features import (
     TransferOwner,
     WorkerStatus,
 )
+from app.schemas.organizer_request import (
+    AdminOverview,
+    OrganizerRequestCreate,
+    OrganizerRequestOut,
+    OrganizerRequestReview,
+)
 from app.schemas.pagination import PaginatedResponse
 from app.schemas.registration import RegistrationOut
 from app.schemas.user import UserOut
@@ -39,6 +46,7 @@ from app.services import account_service as accounts
 from app.services import attendance_service as attendance
 from app.services import features_service as service
 from app.services import media_service as media
+from app.services import organizer_request_service as applications
 from app.services import registration_service, user_service
 
 router = APIRouter(tags=["Extended workflows"])
@@ -191,9 +199,17 @@ def transfer(event_id: uuid.UUID, request: TransferOwner, db: DB, actor: Admin) 
 
 @router.get("/admin/audit-logs", response_model=PaginatedResponse[AuditOut])
 def audit_logs(
-    db: DB, actor: Admin, limit: Limit = 20, offset: Offset = 0, target_id: uuid.UUID | None = None
+    db: DB,
+    actor: Admin,
+    limit: Limit = 20,
+    offset: Offset = 0,
+    target_id: uuid.UUID | None = None,
+    actor_id: uuid.UUID | None = None,
+    action: str | None = Query(None, max_length=80),
+    since: datetime | None = None,
+    until: datetime | None = None,
 ) -> object:
-    rows, total = service.audit_logs(db, limit, offset, target_id)
+    rows, total = service.audit_logs(db, limit, offset, target_id, actor_id, action, since, until)
     return PaginatedResponse.create(
         [AuditOut.model_validate(r) for r in rows], total, limit, offset
     )
@@ -323,3 +339,50 @@ def calendar(event_id: uuid.UUID, db: DB) -> Response:
         media_type="text/calendar",
         headers={"Content-Disposition": f'attachment; filename="event-{event_id}.ics"'},
     )
+
+
+@router.get("/users/me/bookmarks/status", response_model=list[uuid.UUID])
+def bookmark_status(
+    db: DB, actor: Actor, event_ids: Annotated[list[uuid.UUID], Query(max_length=100)]
+) -> object:
+    return service.bookmark_status(db, actor, event_ids)
+
+
+@router.get("/admin/overview", response_model=AdminOverview)
+def overview(db: DB, actor: Admin) -> object:
+    return service.overview(db)
+
+
+@router.get("/users/me/organizer-requests", response_model=PaginatedResponse[OrganizerRequestOut])
+def personal_requests(db: DB, actor: Actor, limit: Limit = 20, offset: Offset = 0) -> object:
+    rows, total = applications.list_requests(db, limit, offset, user_id=actor.id)
+    return PaginatedResponse.create(
+        [OrganizerRequestOut.model_validate(row) for row in rows], total, limit, offset
+    )
+
+
+@router.post("/users/me/organizer-requests", response_model=OrganizerRequestOut, status_code=201)
+def submit_request(request: OrganizerRequestCreate, db: DB, actor: Actor) -> object:
+    return applications.submit(db, actor, request)
+
+
+@router.get("/admin/organizer-requests", response_model=PaginatedResponse[OrganizerRequestOut])
+def admin_requests(
+    db: DB,
+    actor: Admin,
+    limit: Limit = 20,
+    offset: Offset = 0,
+    status: Literal["pending", "approved", "rejected"] | None = None,
+    q: str | None = Query(None, min_length=1, max_length=200),
+) -> object:
+    rows, total = applications.list_requests(db, limit, offset, status=status, q=q)
+    return PaginatedResponse.create(
+        [OrganizerRequestOut.model_validate(row) for row in rows], total, limit, offset
+    )
+
+
+@router.patch("/admin/organizer-requests/{request_id}", response_model=OrganizerRequestOut)
+def review_request(
+    request_id: uuid.UUID, request: OrganizerRequestReview, db: DB, actor: Admin
+) -> object:
+    return applications.review(db, request_id, actor, request)

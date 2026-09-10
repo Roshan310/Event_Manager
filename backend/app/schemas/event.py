@@ -3,7 +3,22 @@ from datetime import datetime
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+TIMEZONE_ALIASES = {
+    "Africa/Asmera": "Africa/Asmara",
+    "America/Godthab": "America/Nuuk",
+    "Asia/Calcutta": "Asia/Kolkata",
+    "Asia/Katmandu": "Asia/Kathmandu",
+    "Asia/Rangoon": "Asia/Yangon",
+    "Europe/Kiev": "Europe/Kyiv",
+    "Pacific/Ponape": "Pacific/Pohnpei",
+    "Pacific/Truk": "Pacific/Chuuk",
+}
+
+
+def canonical_timezone(value: str) -> str:
+    return TIMEZONE_ALIASES.get(value, value)
 
 
 class EventFields(BaseModel):
@@ -16,6 +31,11 @@ class EventFields(BaseModel):
     ends_at: datetime
     capacity: int = Field(ge=1, le=1_000_000)
     category_id: uuid.UUID | None = None
+
+    @field_validator("timezone")
+    @classmethod
+    def normalize_timezone(cls, value: str) -> str:
+        return canonical_timezone(value)
 
     @model_validator(mode="after")
     def validate_schedule(self) -> "EventFields":
@@ -44,6 +64,11 @@ class EventUpdate(BaseModel):
     starts_at: datetime | None = None
     ends_at: datetime | None = None
     capacity: int | None = Field(default=None, ge=1, le=1_000_000)
+
+    @field_validator("timezone")
+    @classmethod
+    def normalize_timezone(cls, value: str | None) -> str | None:
+        return canonical_timezone(value) if value is not None else None
 
     @model_validator(mode="after")
     def validate_values(self) -> "EventUpdate":

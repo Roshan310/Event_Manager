@@ -38,6 +38,10 @@ def change_role(db: Session, user_id: uuid.UUID, role: UserRole, actor: User) ->
         raise ConflictError("cannot_demote_self", "Administrators cannot demote themselves")
     if user.role == UserRole.ADMIN and role != UserRole.ADMIN:
         protect_last_admin(db, user)
+    if role in (UserRole.ORGANIZER, UserRole.ADMIN):
+        from app.services.organizer_request_service import resolve_pending
+
+        resolve_pending(db, user, actor)
     user.role = role
     audit(db, actor, "user.role_changed", user.id, {"role": role.value})
     db.commit()

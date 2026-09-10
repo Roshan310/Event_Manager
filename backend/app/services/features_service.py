@@ -133,9 +133,24 @@ def transfer(
 
 
 def audit_logs(
-    db: Session, limit: int, offset: int, target_id: uuid.UUID | None = None
+    db: Session,
+    limit: int,
+    offset: int,
+    target_id: uuid.UUID | None = None,
+    actor_id: uuid.UUID | None = None,
+    action: str | None = None,
+    since: datetime | None = None,
+    until: datetime | None = None,
 ) -> tuple[list[AuditLog], int]:
     statement = select(AuditLog)
+    if actor_id:
+        statement = statement.where(AuditLog.actor_id == actor_id)
+    if action:
+        statement = statement.where(AuditLog.action == action)
+    if since:
+        statement = statement.where(AuditLog.created_at >= since)
+    if until:
+        statement = statement.where(AuditLog.created_at <= until)
     if target_id:
         statement = statement.where(AuditLog.target_id == target_id)
     total = db.scalar(select(func.count()).select_from(statement.subquery())) or 0
@@ -198,4 +213,54 @@ def worker_status(db: Session) -> dict[str, Any]:
         "healthy": bool(row and as_utc(row.seen_at) > datetime.now(UTC) - timedelta(minutes=5)),
         "pending": pending,
         "failed": failed,
+    }
+
+
+def bookmark_status(db: Session, actor: User, event_ids: list[uuid.UUID]) -> list[uuid.UUID]:
+    return list(
+        db.scalars(
+            select(Bookmark.event_id).where(
+                Bookmark.user_id == actor.id, Bookmark.event_id.in_(event_ids)
+            )
+        )
+    )
+
+
+def overview(db: Session) -> dict[str, Any]:
+    from app.models.organizer_request import OrganizerRequest
+    from app.models.registration import Registration
+
+    def counts(column: Any) -> dict[str, int]:
+        return {
+            str(key): value
+            for key, value in db.execute(select(column, func.count()).group_by(column))
+        }
+
+    return {
+        "users_by_role": counts(User.role),
+        "users_by_status": {
+            "active": db.scalar(
+                select(func.count()).select_from(User).where(User.is_active.is_(True))
+            )
+            or 0,
+            "inactive": db.scalar(
+                select(func.count()).select_from(User).where(User.is_active.is_(False))
+            )
+            or 0,
+        },
+        "events_by_status": counts(Event.status),
+        "registrations_by_status": counts(Registration.status),
+        "check_ins": db.scalar(
+            select(func.count())
+            .select_from(Registration)
+            .where(Registration.checked_in_at.is_not(None))
+        )
+        or 0,
+        "pending_applications": db.scalar(
+            select(func.count())
+            .select_from(OrganizerRequest)
+            .where(OrganizerRequest.status == "pending")
+        )
+        or 0,
+        "generated_at": datetime.now(UTC),
     }

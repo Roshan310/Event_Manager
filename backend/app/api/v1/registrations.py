@@ -38,13 +38,14 @@ def cancel(
 def mine(
     status: RegistrationStatus | None = None,
     period: Literal["upcoming", "past"] | None = None,
+    sort: Literal["created_at", "starts_at"] = "created_at",
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     actor: User = Depends(current_user),
 ) -> PaginatedResponse[MyRegistrationOut]:
     rows, total = registration_service.list_mine(
-        db, actor, limit, offset, status=status, period=period
+        db, actor, limit, offset, status=status, period=period, sort=sort
     )
     items = [MyRegistrationOut.model_validate(row) for row in rows]
     return PaginatedResponse.create(items, total, limit, offset)

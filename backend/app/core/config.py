@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     notification_max_attempts: int = Field(default=5, ge=1, le=20)
     notification_lease_seconds: int = Field(default=120, ge=30, le=600)
     media_root: str = "media"
+    frontend_origin: str = "http://localhost:3000"
     public_base_url: str = "http://localhost:8000"
     token_encryption_key: SecretStr | None = None
     auth_rate_limit: int = Field(default=20, ge=1)
@@ -60,7 +61,7 @@ class Settings(BaseSettings):
             raise ValueError("CORS origins must be explicit HTTP(S) origins")
         return value
 
-    @field_validator("public_base_url")
+    @field_validator("public_base_url", "frontend_origin")
     @classmethod
     def valid_public_url(cls, value: str) -> str:
         parts = urlsplit(value)

@@ -62,7 +62,11 @@ def _issue_pair(db: Session, user: User, family_id: uuid.UUID | None = None) -> 
     )
     db.flush()
     return TokenResponse(
-        access_token=access_token, refresh_token=raw_refresh, expires_in=expires_in, user=user
+        access_token=access_token,
+        refresh_token=raw_refresh,
+        expires_in=expires_in,
+        refresh_expires_in=settings.refresh_token_expires_days * 86400,
+        user=user,
     )
 
 

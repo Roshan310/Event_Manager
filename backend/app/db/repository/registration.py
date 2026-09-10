@@ -62,7 +62,12 @@ def list_for_attendee(
     rows = list(
         db.scalars(
             statement.options(joinedload(Registration.event))
-            .order_by(Registration.created_at.desc(), Registration.id)
+            .order_by(
+                Event.starts_at
+                if filters.get("sort") == "starts_at"
+                else Registration.created_at.desc(),
+                Registration.id,
+            )
             .offset(offset)
             .limit(limit)
         )

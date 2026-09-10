@@ -23,7 +23,9 @@ def send_notification(topic: str, payload: dict[str, object]) -> None:
     update = SUBJECTS.get(topic, "There is an event update")
     if topic.startswith("account."):
         action = "reset your password" if topic == "account.reset" else "verify your email"
+        page = "reset-password" if topic == "account.reset" else "verify"
         body = (
+            f"Open {settings.frontend_origin}/{page}#token={payload['token']}\n\n"
             f"Use this single-use token to {action}:\n\n{payload['token']}\n\n"
             "If you did not request this, ignore this email."
         )

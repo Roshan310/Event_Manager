@@ -8,6 +8,7 @@ from app.models.features import (  # noqa: F401
     RateBucket,
     WorkerHeartbeat,
 )
+from app.models.organizer_request import OrganizerRequest  # noqa: F401
 from app.models.outbox import OutboxMessage
 from app.models.registration import Registration, RegistrationStatus
 from app.models.token import RefreshToken
