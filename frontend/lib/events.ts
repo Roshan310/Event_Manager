@@ -4,22 +4,31 @@ import { useCallback, useSyncExternalStore } from "react";
 import { api } from "./api";
 import type { Event, Page } from "./types";
 import { useAuth } from "@/components/providers";
-export function useEvents(managed = false) {
+export function useEvents(managed = false, filters = "") {
+  const { user } = useAuth();
   return useInfiniteQuery({
-    queryKey: ["events", managed ? "managed" : "public"],
+    queryKey: [
+      "events",
+      managed ? "managed" : "public",
+      managed ? user?.id : null,
+      filters,
+    ],
     initialPageParam: 0,
-    queryFn: ({ pageParam }) =>
+    queryFn: ({ pageParam, signal }) =>
       api<Page<Event>>(
-        `${managed ? "/organizer" : ""}/events?limit=24&offset=${pageParam}`,
+        `${managed ? "/organizer" : ""}/events?limit=24&offset=${pageParam}&${filters}`,
+        { signal },
       ),
     getNextPageParam: (last) =>
       last.has_more ? last.offset + last.limit : undefined,
   });
 }
 export function useEvent(id: string, managed = false) {
+  const { user } = useAuth();
   return useQuery({
-    queryKey: ["event", id, managed],
-    queryFn: () => api<Event>(`${managed ? "/organizer" : ""}/events/${id}`),
+    queryKey: ["event", id, managed, managed ? user?.id : null],
+    queryFn: ({ signal }) =>
+      api<Event>(`${managed ? "/organizer" : ""}/events/${id}`, { signal }),
     enabled: !!id,
   });
 }
@@ -32,7 +41,9 @@ function subscribe(callback: () => void) {
     window.removeEventListener("evently-saved", callback);
   };
 }
-export function useSaved() {
+import { useAccountBookmark } from "@/components/bookmarks";
+export function useSaved(id?: string) {
+  const account = useAccountBookmark(id);
   const { user } = useAuth();
   const key = "evently-saved:" + (user?.id ?? "guest");
   const snapshot = useCallback(() => {
@@ -52,10 +63,15 @@ export function useSaved() {
   } catch {
     ids = [];
   }
-  function toggle(id: string) {
+  async function toggle(id: string) {
+    if (user) return account.toggle(id);
     const next = ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id];
     localStorage.setItem(key, JSON.stringify(next));
     window.dispatchEvent(new window.Event("evently-saved"));
   }
-  return { ids, toggle };
+  return {
+    ids: user ? account.ids : ids,
+    toggle,
+    ready: user ? account.ready : true,
+  };
 }

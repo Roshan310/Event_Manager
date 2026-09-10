@@ -17,36 +17,33 @@ import { toast } from "sonner";
 import { useEvent, useSaved } from "@/lib/events";
 import { useAuth } from "./providers";
 import { api, ApiError } from "@/lib/api";
-import type { Page, Registration } from "@/lib/types";
+import type { Registration } from "@/lib/types";
 import { dateLabel, timeLabel, presentation } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { Loading, ErrorState, Empty, Confirm } from "./feedback";
+import { Ticket } from "./tickets";
 export function EventDetail({ id }: { id: string }) {
   const event = useEvent(id);
   const { user } = useAuth();
-  const saved = useSaved();
+  const saved = useSaved(id);
   const client = useQueryClient();
   const [cancel, setCancel] = useState(false);
   const registrations = useQuery({
-    queryKey: ["registrations", "all", user?.id],
+    queryKey: ["registrations", "current", user?.id, id],
     enabled: !!user,
-    queryFn: async () => {
-      const items: Registration[] = [];
-      let offset = 0;
-      while (true) {
-        const page = await api<Page<Registration>>(
-          "/users/me/registrations?limit=100&offset=" + offset,
-        );
-        items.push(...page.items);
-        if (!page.has_more) break;
-        offset += page.limit;
+    queryFn: async ({ signal }) => {
+      try {
+        return await api<Registration>(`/events/${id}/registrations/me`, {
+          signal,
+        });
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) return null;
+        throw error;
       }
-      return items;
     },
   });
-  const current = registrations.data?.find(
-    (r) => r.event_id === id && r.status !== "cancelled",
-  );
+  const current =
+    registrations.data?.status !== "cancelled" ? registrations.data : null;
   const mutation = useMutation({
     mutationFn: (remove: boolean) =>
       api<Registration | undefined>(
@@ -63,6 +60,7 @@ export function EventDetail({ id }: { id: string }) {
       );
       setCancel(false);
       void client.invalidateQueries({ queryKey: ["registrations"] });
+      void client.invalidateQueries({ queryKey: ["resource"] });
       void client.invalidateQueries({ queryKey: ["events"] });
       void client.invalidateQueries({ queryKey: ["event", id] });
     },
@@ -91,7 +89,7 @@ export function EventDetail({ id }: { id: string }) {
   const closed =
     e.status === "completed" ||
     e.status === "cancelled" ||
-    new Date(e.ends_at) <= new Date();
+    new Date(e.starts_at) <= new Date();
   return (
     <>
       <Link href="/events" className="back-link">
@@ -100,13 +98,20 @@ export function EventDetail({ id }: { id: string }) {
       </Link>
       <div className="detail-hero">
         <Image
-          src={"/images/" + presentation(e).file + ".jpg"}
+          src={
+            e.cover_url
+              ? `/api/backend/events/${e.id}/cover`
+              : "/images/" + presentation(e).file + ".jpg"
+          }
+          unoptimized={!!e.cover_url}
           fill
           priority
           sizes="100vw"
           alt=""
         />
-        <span className="photo-caption">Illustrative event photography</span>
+        {!e.cover_url && (
+          <span className="photo-caption">Illustrative event photography</span>
+        )}
       </div>
       <div className="detail-layout">
         <article>
@@ -152,7 +157,11 @@ export function EventDetail({ id }: { id: string }) {
             }
           >
             {closed
-              ? "Event ended"
+              ? e.status === "cancelled"
+                ? "Event cancelled"
+                : new Date(e.ends_at) > new Date()
+                  ? "Event ongoing"
+                  : "Event ended"
               : e.available_seats
                 ? "Registration open"
                 : "Waitlist open"}
@@ -182,9 +191,9 @@ export function EventDetail({ id }: { id: string }) {
                 <ArrowUpRight size={16} />
               </Link>
             </Button>
-          ) : user.role !== "attendee" ? (
+          ) : !user.email_verified ? (
             <p className="muted-note">
-              Registration is available to attendee accounts.
+              Verify your email in your account before registering.
             </p>
           ) : registrations.isPending ? (
             <Loading />
@@ -201,9 +210,13 @@ export function EventDetail({ id }: { id: string }) {
                   ? "You’re going"
                   : "On the waitlist"}
               </div>
+              {current.status === "confirmed" && <Ticket id={id} />}
+              {current.queue_position && (
+                <p>Queue position: {current.queue_position}</p>
+              )}
               <Button
                 variant="outline"
-                disabled={mutation.isPending}
+                disabled={closed || mutation.isPending}
                 onClick={() => setCancel(true)}
               >
                 Cancel registration
@@ -226,9 +239,9 @@ export function EventDetail({ id }: { id: string }) {
           )}
           <Button
             variant="ghost"
-            onClick={() => {
+            onClick={async () => {
               try {
-                saved.toggle(id);
+                await saved.toggle(id);
               } catch {
                 toast.error("Unable to save on this browser.");
               }
@@ -238,9 +251,7 @@ export function EventDetail({ id }: { id: string }) {
               size={17}
               fill={saved.ids.includes(id) ? "currentColor" : "none"}
             />
-            {saved.ids.includes(id)
-              ? "Saved on this browser"
-              : "Save for later"}
+            {saved.ids.includes(id) ? "Saved" : "Save for later"}
           </Button>
           <small>One registration. One seat. A whole new experience.</small>
         </aside>

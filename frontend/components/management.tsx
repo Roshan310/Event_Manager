@@ -25,6 +25,8 @@ import { dateLabel, initials } from "@/lib/utils";
 import { useAuth } from "./providers";
 import { Button } from "./ui/button";
 import { RequireAuth, Loading, ErrorState, Empty, Confirm } from "./feedback";
+import { usePathname } from "next/navigation";
+import { useResource, ActionForm, Field } from "./workflows";
 export function ManagedEvents() {
   return (
     <RequireAuth roles={["organizer", "admin"]}>
@@ -33,9 +35,19 @@ export function ManagedEvents() {
   );
 }
 function ManagedList() {
-  const query = useEvents(true);
+  const base = usePathname().startsWith("/admin")
+    ? "/admin/events"
+    : "/organizer/events";
   const { user } = useAuth();
   const [tab, setTab] = useState("all");
+  const [search, setSearch] = useState("");
+  const query = useEvents(
+    true,
+    new URLSearchParams({
+      ...(tab !== "all" ? { status: tab } : {}),
+      ...(search ? { q: search } : {}),
+    }).toString(),
+  );
   const [action, setAction] = useState<{ event: Event; type: string } | null>(
     null,
   );
@@ -78,12 +90,16 @@ function ManagedList() {
           <p>From your first idea to the last good conversation.</p>
         </div>
         <Button asChild>
-          <Link href="/organizer/events/new">
+          <Link href={base + "/new"}>
             <Plus size={18} />
             Create Event
           </Link>
         </Button>
       </div>
+      <label>
+        Search events
+        <input value={search} onChange={(e) => setSearch(e.target.value)} />
+      </label>
       <div className="tab-bar" role="group" aria-label="Event status">
         {["all", "draft", "published", "completed", "cancelled"].map((t) => (
           <button
@@ -106,7 +122,7 @@ function ManagedList() {
           description="There are no events in this view. Create an event or load more to see the rest."
           action={
             <Button asChild>
-              <Link href="/organizer/events/new">
+              <Link href={base + "/new"}>
                 <Plus size={16} />
                 Create your event
               </Link>
@@ -147,14 +163,14 @@ function ManagedList() {
               <div className="managed-actions">
                 {e.status !== "cancelled" && e.status !== "completed" && (
                   <Button size="sm" variant="outline" asChild>
-                    <Link href={"/organizer/events/" + e.id + "/edit"}>
+                    <Link href={base + "/" + e.id + "/edit"}>
                       <Pencil size={14} />
                       Edit
                     </Link>
                   </Button>
                 )}
                 <Button size="sm" variant="outline" asChild>
-                  <Link href={"/organizer/events/" + e.id + "/registrations"}>
+                  <Link href={base + "/" + e.id + "/registrations"}>
                     <Users size={14} />
                     Attendees
                   </Link>
@@ -253,19 +269,28 @@ export function Roster({ id }: { id: string }) {
 }
 function RosterContent({ id }: { id: string }) {
   const event = useEvent(id, true);
+  const { user } = useAuth();
+  const base = usePathname().startsWith("/admin")
+    ? "/admin/events"
+    : "/organizer/events";
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("");
+  const summary = useResource<Record<string, number>>(
+    `/organizer/events/${id}/summary`,
+  );
   const query = useInfiniteQuery({
-    queryKey: ["roster", id],
+    queryKey: ["roster", user?.id, id, search, status],
     initialPageParam: 0,
     queryFn: ({ pageParam }) =>
       api<Page<Registration>>(
-        `/events/${id}/registrations?limit=24&offset=${pageParam}`,
+        `/events/${id}/registrations?limit=24&offset=${pageParam}&include_cancelled=true&${new URLSearchParams({ ...(search ? { q: search } : {}), ...(status ? { status } : {}) })}`,
       ),
     getNextPageParam: (last) =>
       last.has_more ? last.offset + last.limit : undefined,
   });
   return (
     <>
-      <Link href="/organizer/events" className="back-link">
+      <Link href={base} className="back-link">
         <ArrowLeft size={16} />
         Manage events
       </Link>
@@ -273,6 +298,45 @@ function RosterContent({ id }: { id: string }) {
         <span className="eyebrow">THE PEOPLE MAKE IT</span>
         <h1>Guest list</h1>
         <p>{event.data?.title ?? "Your event attendees"}</p>
+        <Link href={`${base}/${id}/check-in`}>Open check-in scanner</Link>
+        <a href={`/api/backend/events/${id}/registrations/export`} download>
+          Export CSV
+        </a>
+        {summary.error ? (
+          <ErrorState error={summary.error} />
+        ) : (
+          summary.data && (
+            <p>
+              {Object.entries(summary.data)
+                .filter(([k]) => k !== "event_id")
+                .map(([k, v]) => `${k.replaceAll("_", " ")}: ${v}`)
+                .join(" · ")}
+            </p>
+          )
+        )}
+        <label>
+          Search guests
+          <input value={search} onChange={(e) => setSearch(e.target.value)} />
+        </label>
+        <label>
+          Status
+          <select value={status} onChange={(e) => setStatus(e.target.value)}>
+            {["", "confirmed", "waitlisted", "cancelled"].map((s) => (
+              <option key={s} value={s}>
+                {s || "All"}
+              </option>
+            ))}
+          </select>
+        </label>
+        {user?.role === "admin" && (
+          <ActionForm
+            path={`/admin/events/${id}/organizer`}
+            method="PATCH"
+            label="Confirm ownership transfer"
+          >
+            <Field name="organizer_id" label="New organizer account ID" />
+          </ActionForm>
+        )}
       </div>
       {query.isPending ? (
         <Loading />
@@ -292,6 +356,7 @@ function RosterContent({ id }: { id: string }) {
                 <th>Email</th>
                 <th>Status</th>
                 <th>Registered</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -323,6 +388,32 @@ function RosterContent({ id }: { id: string }) {
                     <td>
                       {new Date(r.created_at).toLocaleDateString("en-US")}
                     </td>
+                    <td>
+                      {r.status === "confirmed" && !r.checked_in_at && (
+                        <ActionForm
+                          path={`/events/${id}/check-ins`}
+                          label="Confirm check-in"
+                        >
+                          <input
+                            type="hidden"
+                            name="registration_id"
+                            value={r.id}
+                          />
+                        </ActionForm>
+                      )}
+                      {r.checked_in_at && (
+                        <ReasonAction
+                          path={`/events/${id}/check-ins/${r.id}`}
+                          label="Undo check-in"
+                        />
+                      )}
+                      {r.status !== "cancelled" && (
+                        <ReasonAction
+                          path={`/events/${id}/registrations/${r.id}`}
+                          label="Remove attendee"
+                        />
+                      )}
+                    </td>
                   </tr>
                 ))}
             </tbody>
@@ -353,12 +444,24 @@ export function AdminUsers() {
 function UserList() {
   const { user, reload } = useAuth();
   const client = useQueryClient();
+  const [q, setQ] = useState("");
+  const [role, setRole] = useState("");
+  const [active, setActive] = useState("");
   const [change, setChange] = useState<{ user: User; role: Role } | null>(null);
   const query = useInfiniteQuery({
-    queryKey: ["admin-users"],
+    queryKey: ["admin-users", user?.id, q, role, active],
     initialPageParam: 0,
     queryFn: ({ pageParam }) =>
-      api<Page<User>>("/admin/users?limit=24&offset=" + pageParam),
+      api<Page<User>>(
+        "/admin/users?limit=24&offset=" +
+          pageParam +
+          "&" +
+          new URLSearchParams({
+            ...(q ? { q } : {}),
+            ...(role ? { role } : {}),
+            ...(active ? { is_active: active } : {}),
+          }),
+      ),
     getNextPageParam: (last) =>
       last.has_more ? last.offset + last.limit : undefined,
   });
@@ -371,7 +474,9 @@ function UserList() {
     onSuccess: () => {
       toast.success("Account role updated.");
       setChange(null);
-      void client.invalidateQueries({ queryKey: ["admin-users"] });
+      void client.invalidateQueries({
+        queryKey: ["admin-users", user?.id, q, role, active],
+      });
       void reload();
     },
     onError: (e) => toast.error(e.message),
@@ -382,6 +487,28 @@ function UserList() {
         <span className="eyebrow">COMMUNITY, WELL LOOKED AFTER</span>
         <h1>People & permissions</h1>
         <p>Manage who attends, who organizes, and who keeps things running.</p>
+        <label>
+          Search name or email
+          <input value={q} onChange={(e) => setQ(e.target.value)} />
+        </label>
+        <label>
+          Role
+          <select value={role} onChange={(e) => setRole(e.target.value)}>
+            {["", "attendee", "organizer", "admin"].map((r) => (
+              <option key={r} value={r}>
+                {r || "All"}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Status
+          <select value={active} onChange={(e) => setActive(e.target.value)}>
+            <option value="">All</option>
+            <option value="true">Active</option>
+            <option value="false">Suspended</option>
+          </select>
+        </label>
       </div>
       {query.isPending ? (
         <Loading />
@@ -420,6 +547,23 @@ function UserList() {
                       >
                         {u.is_active ? "Active" : "Inactive"}
                       </span>
+                      {u.id !== user?.id && (
+                        <ActionForm
+                          path={"/admin/users/" + u.id + "/status"}
+                          method="PATCH"
+                          label={
+                            u.is_active
+                              ? "Confirm suspension"
+                              : "Confirm reactivation"
+                          }
+                        >
+                          <input
+                            type="hidden"
+                            name="is_active"
+                            value={String(!u.is_active)}
+                          />
+                        </ActionForm>
+                      )}
                     </td>
                     <td>
                       <select
@@ -464,5 +608,29 @@ function UserList() {
         onConfirm={() => mutation.mutate()}
       />
     </>
+  );
+}
+
+function ReasonAction({ path, label }: { path: string; label: string }) {
+  const [reason, setReason] = useState("");
+  return (
+    <div>
+      <label>
+        Reason
+        <input
+          minLength={3}
+          maxLength={500}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+        />
+      </label>
+      {reason.trim().length >= 3 && (
+        <ActionForm
+          path={path + "?" + new URLSearchParams({ reason })}
+          method="DELETE"
+          label={"Confirm " + label.toLowerCase()}
+        />
+      )}
+    </div>
   );
 }

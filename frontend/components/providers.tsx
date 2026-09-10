@@ -16,6 +16,7 @@ import { MotionConfig } from "motion/react";
 import { Toaster, toast } from "sonner";
 import { api, ApiError, announceSessionChange } from "@/lib/api";
 import type { Session, User } from "@/lib/types";
+import { BookmarkProvider } from "./bookmarks";
 const AuthContext = createContext<{
   user: User | null;
   loading: boolean;
@@ -62,8 +63,13 @@ function AuthProvider({ children }: { children: ReactNode }) {
         : null;
     if (channel)
       channel.onmessage = () => {
-        client.removeQueries({ predicate: (q) => q.queryKey[0] !== "session" });
-        recheck();
+        void client.cancelQueries().then(() => {
+          client.removeQueries({
+            predicate: (q) => q.queryKey[0] !== "session",
+          });
+          client.setQueryData(["session"], { user: null, expires_at: 0 });
+          recheck();
+        });
       };
     window.addEventListener("evently-auth-check", recheck);
     return () => {
@@ -120,7 +126,9 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={client}>
       <MotionConfig reducedMotion="user">
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          <BookmarkProvider>{children}</BookmarkProvider>
+        </AuthProvider>
         <Toaster position="bottom-right" richColors closeButton />
       </MotionConfig>
     </QueryClientProvider>

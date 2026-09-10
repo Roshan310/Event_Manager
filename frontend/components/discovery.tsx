@@ -18,62 +18,77 @@ import { useAuth } from "./providers";
 import { useEvents } from "@/lib/events";
 import { api } from "@/lib/api";
 import type { Page, Registration, Event } from "@/lib/types";
-import { eventDateKey } from "@/lib/utils";
+
 import { EventCard, MiniEvent } from "./event-card";
 import { Button } from "./ui/button";
 import { Empty, ErrorState, Loading } from "./feedback";
 export function Discovery({ home = false }: { home?: boolean }) {
-  const events = useEvents();
   const { user } = useAuth();
   const params = useSearchParams();
   const router = useRouter();
+  const backendFilters = new URLSearchParams();
+  for (const key of [
+    "q",
+    "location",
+    "category_id",
+    "sort",
+    "available_only",
+  ]) {
+    const value = params.get(key);
+    if (value) backendFilters.set(key, value);
+  }
+  if (!backendFilters.has("q") && params.get("topic"))
+    backendFilters.set("q", params.get("topic")!);
+  for (const [key, apiKey] of [
+    ["date", "starts_after"],
+    ["until", "starts_before"],
+  ]) {
+    const value = params.get(key);
+    if (value) {
+      const boundary = new Date(value + "T00:00:00");
+      if (key === "until") boundary.setDate(boundary.getDate() + 1);
+      if (Number.isFinite(boundary.getTime()))
+        backendFilters.set(
+          apiKey,
+          new Date(
+            boundary.getTime() - (key === "until" ? 1 : 0),
+          ).toISOString(),
+        );
+    }
+  }
+  const events = useEvents(false, backendFilters.toString());
+  const categories = useQuery({
+    queryKey: ["categories"],
+    queryFn: () => api<{ id: string; name: string }[]>("/categories"),
+  });
   const [heroSearch, setHeroSearch] = useState("");
   const [slide, setSlide] = useState(0);
   const registrations = useQuery({
     queryKey: ["registrations", "rail", user?.id],
-    queryFn: () => api<Page<Registration>>("/users/me/registrations?limit=100"),
-    enabled: !!user && user.role === "attendee",
+    queryFn: () =>
+      api<Page<Registration>>(
+        "/users/me/registrations?limit=3&status=confirmed&period=upcoming&sort=starts_at",
+      ),
+    enabled: !!user,
   });
   const rows = events.data?.pages.flatMap((p) => p.items) ?? [];
   const total = events.data?.pages[0]?.total ?? 0;
   const q = params.get("q") ?? "";
-  const [searchText, setSearchText] = useState(q);
+
   const topic = params.get("topic") ?? "";
   const location = params.get("location") ?? "";
   const date = params.get("date") ?? "";
-  const sort = params.get("sort") ?? "soonest";
+  const sort = params.get("sort") ?? "starts_at";
   function filter(key: string, value: string) {
     const next = new URLSearchParams(params.toString());
     if (value) next.set(key, value);
     else next.delete(key);
-    router.replace(
+    router.push(
       (home ? "/" : "/events") + (next.size ? "?" + next.toString() : ""),
       { scroll: false },
     );
   }
-  const filtered = rows
-    .filter((e) => {
-      const text = (
-        e.title +
-        " " +
-        e.description +
-        " " +
-        e.location
-      ).toLowerCase();
-      return (
-        (!q || text.includes(q.toLowerCase())) &&
-        (!topic || text.includes(topic.toLowerCase())) &&
-        (!location || e.location === location) &&
-        (!date || eventDateKey(e) === date)
-      );
-    })
-    .sort((a, b) =>
-      sort === "title"
-        ? a.title.localeCompare(b.title)
-        : sort === "available"
-          ? b.available_seats - a.available_seats
-          : new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime(),
-    );
+  const filtered = rows;
   const personal = (registrations.data?.items ?? [])
     .filter(
       (r) =>
@@ -83,22 +98,17 @@ export function Discovery({ home = false }: { home?: boolean }) {
     )
     .map((r) => r.event as Event)
     .sort((a, b) => a.starts_at.localeCompare(b.starts_at));
-  const rail =
-    user?.role === "attendee" ? personal.slice(0, 3) : rows.slice(0, 3);
+  const rail = !!user ? personal.slice(0, 3) : rows.slice(0, 3);
   const filters = (
     <div className="discovery-filters" id="filters">
       <label className="select-wrap">
         <span className="sr-only">Location</span>
-        <select
-          disabled={events.isPending}
+        <input
+          aria-label="Location"
+          placeholder="Location"
           value={location}
           onChange={(e) => filter("location", e.target.value)}
-        >
-          <option value="">All locations</option>
-          {[...new Set(rows.map((e) => e.location))].sort().map((l) => (
-            <option key={l}>{l}</option>
-          ))}
-        </select>
+        />
       </label>
       <label className="date-filter">
         <CalendarDays size={15} />
@@ -118,10 +128,42 @@ export function Discovery({ home = false }: { home?: boolean }) {
           value={sort}
           onChange={(e) => filter("sort", e.target.value)}
         >
-          <option value="soonest">Sort by: Soonest</option>
+          <option value="starts_at">Sort by: Soonest</option>
           <option value="title">Sort by: Name</option>
-          <option value="available">Sort by: Availability</option>
+          <option value="newest">Sort by: Newest</option>
         </select>
+      </label>
+      <label>
+        Through
+        <input
+          type="date"
+          value={params.get("until") ?? ""}
+          onChange={(e) => filter("until", e.target.value)}
+        />
+      </label>
+      <label>
+        Category
+        <select
+          value={params.get("category_id") ?? ""}
+          onChange={(e) => filter("category_id", e.target.value)}
+        >
+          <option value="">All categories</option>
+          {categories.data?.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <input
+          type="checkbox"
+          checked={params.get("available_only") === "true"}
+          onChange={(e) =>
+            filter("available_only", e.target.checked ? "true" : "")
+          }
+        />
+        Available seats
       </label>
     </div>
   );
@@ -252,18 +294,10 @@ export function Discovery({ home = false }: { home?: boolean }) {
             </div>
             <section className="upcoming-panel">
               <div className="rail-heading">
-                <h2>
-                  {user?.role === "attendee"
-                    ? "Your next plans"
-                    : "Coming up soon"}
-                </h2>
-                <Link
-                  href={user?.role === "attendee" ? "/my-events" : "/events"}
-                >
-                  View all
-                </Link>
+                <h2>{!!user ? "Your next plans" : "Coming up soon"}</h2>
+                <Link href={!!user ? "/my-events" : "/events"}>View all</Link>
               </div>
-              {registrations.isError && user?.role === "attendee" ? (
+              {registrations.isError && !!user ? (
                 <ErrorState
                   error={registrations.error}
                   retry={registrations.refetch}
@@ -272,7 +306,7 @@ export function Discovery({ home = false }: { home?: boolean }) {
                 rail.map((e) => <MiniEvent key={e.id} event={e} />)
               ) : (
                 <p className="rail-empty">
-                  {user?.role === "attendee"
+                  {!!user
                     ? "Your next great plan belongs here. Find an event and make it yours."
                     : "A fresh lineup is on its way. Come back soon."}
                 </p>
@@ -318,15 +352,16 @@ export function Discovery({ home = false }: { home?: boolean }) {
             className="explore-search"
             onSubmit={(e) => {
               e.preventDefault();
-              filter("q", searchText);
+              filter("q", String(new FormData(e.currentTarget).get("q") ?? ""));
             }}
           >
             <Search size={19} />
             <input
-              aria-label="Search loaded events"
+              aria-label="Search events"
+              name="q"
+              key={q}
               placeholder="Search events, topics, or locations…"
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
+              defaultValue={q}
             />
             <Button type="submit" size="sm">
               <SlidersHorizontal size={16} />

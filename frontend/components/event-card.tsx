@@ -18,7 +18,7 @@ export function EventCard({
   featured?: boolean;
   index?: number;
 }) {
-  const { ids, toggle } = useSaved();
+  const { ids, toggle } = useSaved(event.id);
   const saved = ids.includes(event.id);
   const visual = presentation(event);
   const full = event.available_seats === 0;
@@ -32,12 +32,20 @@ export function EventCard({
       <div className="event-image">
         <Link href={"/events/" + event.id} tabIndex={-1} aria-hidden="true">
           <Image
-            src={"/images/" + visual.file + ".jpg"}
+            src={
+              event.cover_url
+                ? `/api/backend/events/${event.id}/cover`
+                : "/images/" + visual.file + ".jpg"
+            }
+            unoptimized={!!event.cover_url}
             fill
             sizes="(max-width: 600px) 100vw, (max-width: 1000px) 50vw, 25vw"
             alt=""
           />
         </Link>
+        {!event.cover_url && (
+          <span className="photo-caption">Illustrative photography</span>
+        )}
         {featured && <span className="featured-pill">Discover</span>}
         {compact && (
           <span className="date-stamp">
@@ -50,11 +58,11 @@ export function EventCard({
             className={"save-button " + (saved ? "is-saved" : "")}
             aria-label={(saved ? "Unsave " : "Save ") + event.title}
             aria-pressed={saved}
-            onClick={() => {
+            onClick={async () => {
               try {
-                toggle(event.id);
+                await toggle(event.id);
                 toast.success(
-                  saved ? "Removed from saved events" : "Saved on this browser",
+                  saved ? "Removed from saved events" : "Event saved",
                 );
               } catch {
                 toast.error("Your browser could not save this event.");
@@ -127,7 +135,12 @@ export function MiniEvent({ event }: { event: Event }) {
     <Link className="mini-event" href={"/events/" + event.id}>
       <div className="mini-image">
         <Image
-          src={"/images/" + presentation(event).file + ".jpg"}
+          src={
+            event.cover_url
+              ? `/api/backend/events/${event.id}/cover`
+              : "/images/" + presentation(event).file + ".jpg"
+          }
+          unoptimized={!!event.cover_url}
           fill
           sizes="72px"
           alt=""

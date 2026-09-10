@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import {
+  boundedBody,
   clearSession,
   failure,
   originAllowed,
@@ -29,8 +30,12 @@ export async function POST(
       payload = { refresh_token: token };
     } else {
       try {
-        payload = await request.json();
-      } catch {
+        payload = JSON.parse(
+          new TextDecoder().decode(await boundedBody(request)),
+        );
+      } catch (error) {
+        if (error instanceof RangeError)
+          return failure("Request body is too large.", 413);
         return failure("Invalid request.", 400);
       }
     }

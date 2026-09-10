@@ -76,7 +76,15 @@ export function AuthForm({ registerMode = false }: { registerMode?: boolean }) {
       await client.cancelQueries();
       client.removeQueries({ predicate: (q) => q.queryKey[0] !== "session" });
       client.setQueryData(["session"], session);
-      router.replace(next);
+      router.replace(
+        registerMode
+          ? "/account"
+          : next === "/" && session.user?.role === "admin"
+            ? "/admin"
+            : next.startsWith("/admin") && session.user?.role !== "admin"
+              ? "/"
+              : next,
+      );
       router.refresh();
     } catch (e) {
       setError((e as Error).message);
@@ -199,6 +207,7 @@ export function AuthForm({ registerMode = false }: { registerMode?: boolean }) {
               {registerMode ? "Sign in" : "Create an account"}
             </Link>
           </p>
+          <Link href="/forgot-password">Forgot password?</Link>
           <p className="auth-note">
             {registerMode
               ? "Your account starts with attendee access."

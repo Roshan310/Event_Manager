@@ -1,7 +1,8 @@
+/* eslint-disable @next/next/no-img-element -- Local authenticated cover and blob preview. */
 "use client";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRouter, usePathname } from "next/navigation";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -9,7 +10,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ArrowRight, CalendarDays, Lightbulb } from "lucide-react";
 import { toast } from "sonner";
 import { useEvent } from "@/lib/events";
-import { wallTimeToISO, localInput } from "@/lib/utils";
+import { canonicalTimeZone, wallTimeToISO, localInput } from "@/lib/utils";
 import type { Event } from "@/lib/types";
 import { api, ApiError } from "@/lib/api";
 import { Button } from "./ui/button";
@@ -17,14 +18,20 @@ import { Input } from "./ui/input";
 import { Textarea } from "./ui/textarea";
 import { Label } from "./ui/label";
 import { RequireAuth, Loading, ErrorState } from "./feedback";
+import { useResource } from "./workflows";
 const schema = z.object({
   title: z
     .string()
+    .trim()
     .min(3, "Give your event a name of at least 3 characters.")
     .max(200),
-  description: z.string().min(1, "Tell your guests what to expect.").max(20000),
-  location: z.string().min(2, "Add a location.").max(300),
-  timezone: z.string().min(1, "Choose a timezone."),
+  description: z
+    .string()
+    .trim()
+    .min(1, "Tell your guests what to expect.")
+    .max(20000),
+  location: z.string().trim().min(2, "Add a location.").max(300),
+  timezone: z.string().trim().min(1, "Choose a timezone.").max(64),
   starts_at: z.string().min(1, "Choose a start time."),
   ends_at: z.string().min(1, "Choose an end time."),
   capacity: z.number().int().min(1).max(1000000),
@@ -49,15 +56,31 @@ function EditLoader({ id }: { id: string }) {
 }
 function EventForm({ event }: { event?: Event }) {
   const router = useRouter();
+  const base = usePathname().startsWith("/admin")
+    ? "/admin/events"
+    : "/organizer/events";
+  const [savedId, setSavedId] = useState(event?.id);
+  const [category, setCategory] = useState(event?.category_id ?? "");
+  const [cover, setCover] = useState<File | null>(null);
+  const [preview, setPreview] = useState("");
+  const [removeCover, setRemoveCover] = useState(false);
+  const categories = useResource<{ id: string; name: string }[]>("/categories");
+  useEffect(
+    () => () => {
+      if (preview) URL.revokeObjectURL(preview);
+    },
+    [preview],
+  );
   const client = useQueryClient();
   const [error, setError] = useState("");
-  const timezone =
-    event?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const timezone = canonicalTimeZone(
+    event?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+  );
   const {
     register,
     handleSubmit,
     setError: fieldError,
-    formState: { errors, isSubmitting },
+    formState: { errors, isSubmitting, isDirty },
   } = useForm<Values>({
     resolver: zodResolver(schema),
     defaultValues: event
@@ -72,6 +95,15 @@ function EventForm({ event }: { event?: Event }) {
         }
       : { timezone, capacity: 50 },
   });
+  useEffect(() => {
+    const warn = (e: BeforeUnloadEvent) => {
+      if (isDirty || cover) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [isDirty, cover]);
   async function submit(values: Values) {
     setError("");
     let starts_at: string, ends_at: string;
@@ -98,10 +130,25 @@ function EventForm({ event }: { event?: Event }) {
       return;
     }
     try {
-      await api<Event>("/events" + (event ? "/" + event.id : ""), {
-        method: event ? "PATCH" : "POST",
-        body: JSON.stringify({ ...values, starts_at, ends_at }),
-      });
+      const saved = await api<Event>(
+        "/events" + (savedId ? "/" + savedId : ""),
+        {
+          method: savedId ? "PATCH" : "POST",
+          body: JSON.stringify({
+            ...values,
+            starts_at,
+            ends_at,
+            category_id: category || null,
+          }),
+        },
+      );
+      setSavedId(saved.id);
+      if (cover) {
+        const body = new FormData();
+        body.append("file", cover);
+        await api(`/events/${saved.id}/cover`, { method: "PUT", body });
+      } else if (removeCover)
+        await api(`/events/${saved.id}/cover`, { method: "DELETE" });
       toast.success(
         event
           ? "Your event has been updated."
@@ -109,15 +156,22 @@ function EventForm({ event }: { event?: Event }) {
       );
       void client.invalidateQueries({ queryKey: ["events"] });
       void client.invalidateQueries({ queryKey: ["event"] });
-      router.push("/organizer/events");
+      router.push(base);
     } catch (e) {
-      setError((e as Error).message);
-      if (e instanceof ApiError && Array.isArray(e.details))
+      if (e instanceof ApiError && Array.isArray(e.details)) {
+        const formMessages: string[] = [];
         for (const detail of e.details) {
           const name = detail.location.at(-1);
           if (name && name in values)
             fieldError(name as keyof Values, { message: detail.message });
+          else formMessages.push(detail.message.replace(/^Value error, /, ""));
         }
+        setError(
+          formMessages.length
+            ? [...new Set(formMessages)].join(" ")
+            : "Please review the highlighted fields and try again.",
+        );
+      } else setError((e as Error).message);
     }
   }
   const field = (
@@ -145,7 +199,7 @@ function EventForm({ event }: { event?: Event }) {
   );
   return (
     <>
-      <Link className="back-link" href="/organizer/events">
+      <Link className="back-link" href={base}>
         <ArrowLeft size={16} />
         Manage events
       </Link>
@@ -171,6 +225,63 @@ function EventForm({ event }: { event?: Event }) {
               <p>Give people a reason to be there.</p>
             </div>
           </div>
+          <label>
+            Category
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+            >
+              <option value="">No category</option>
+              {categories.data?.map((c) => (
+                <option value={c.id} key={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          {categories.error && <ErrorState error={categories.error} />}
+          <label>
+            Cover image (JPEG or PNG, up to 5 MB)
+            <input
+              type="file"
+              accept="image/jpeg,image/png"
+              onChange={(e) => {
+                const file = e.target.files?.[0] ?? null;
+                setCover(file);
+                setPreview(file ? URL.createObjectURL(file) : "");
+                setRemoveCover(false);
+              }}
+            />
+          </label>
+          {(preview || event?.cover_url) && !removeCover && (
+            <img
+              src={
+                preview || `/api/backend/organizer/events/${event?.id}/cover`
+              }
+              alt="Cover preview"
+              width={360}
+            />
+          )}
+          {event?.cover_url && (
+            <label>
+              <input
+                type="checkbox"
+                checked={removeCover}
+                onChange={(e) => {
+                  setRemoveCover(e.target.checked);
+                  setCover(null);
+                  setPreview("");
+                }}
+              />
+              Remove existing cover
+            </label>
+          )}
+          {savedId && !event && (
+            <p>
+              Draft saved. If cover upload failed, retry saving to update this
+              draft.
+            </p>
+          )}
           {field(
             "title",
             "Event name",
@@ -206,7 +317,7 @@ function EventForm({ event }: { event?: Event }) {
                 new Set([
                   timezone,
                   "UTC",
-                  ...Intl.supportedValuesOf("timeZone"),
+                  ...Intl.supportedValuesOf("timeZone").map(canonicalTimeZone),
                 ]),
               ).map((t) => (
                 <option key={t} value={t} />
@@ -231,7 +342,7 @@ function EventForm({ event }: { event?: Event }) {
           )}
           <div className="form-footer">
             <Button asChild variant="outline">
-              <Link href="/organizer/events">Cancel</Link>
+              <Link href={base}>Cancel</Link>
             </Button>
             <Button type="submit" disabled={isSubmitting}>
               {isSubmitting

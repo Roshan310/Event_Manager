@@ -31,7 +31,9 @@ async function refreshSession() {
     refreshPromise = (
       typeof navigator !== "undefined" && navigator.locks
         ? navigator.locks.request("evently-session", perform)
-        : perform()
+        : Promise.reject(
+            new ApiError(401, "Please sign in again to renew your session."),
+          )
     ).finally(() => {
       refreshPromise = null;
     });
@@ -42,9 +44,21 @@ export async function api<T>(
   options: RequestInit = {},
   retry = true,
 ): Promise<T> {
+  if (retry && ["/auth/change-password", "/auth/logout-all"].includes(path)) {
+    await refreshSession();
+    const run = () => api<T>(path, options, false);
+    return typeof navigator !== "undefined" && navigator.locks
+      ? navigator.locks.request("evently-session", run)
+      : run();
+  }
   const res = await fetch("/api/backend" + path, {
     ...options,
-    headers: { "Content-Type": "application/json", ...options.headers },
+    headers: {
+      ...(options.body instanceof FormData
+        ? {}
+        : { "Content-Type": "application/json" }),
+      ...options.headers,
+    },
     cache: "no-store",
   });
   if (res.status === 401 && retry) {

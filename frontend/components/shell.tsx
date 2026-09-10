@@ -36,6 +36,8 @@ import {
   DialogTitle,
   DialogDescription,
 } from "./ui/dialog";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 const topics = [
   { label: "Music", term: "music", icon: Music2 },
   { label: "Tech & Business", term: "workshop", icon: BriefcaseBusiness },
@@ -94,8 +96,19 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const router = useRouter();
   const { user, loading, logout } = useAuth();
+  const unread = useQuery({
+    queryKey: ["resource", user?.id, "unread-count"],
+    enabled: !!user,
+    queryFn: ({ signal }) =>
+      api<{ total: number }>(
+        "/users/me/notifications?unread_only=true&limit=1",
+        { signal },
+      ),
+    refetchInterval: 60000,
+    refetchIntervalInBackground: false,
+  });
   const [menu, setMenu] = useState(false);
-  const [notice, setNotice] = useState(false);
+
   const [organize, setOrganize] = useState(false);
   const [search, setSearch] = useState("");
   const nav = [
@@ -127,10 +140,17 @@ export function Shell({ children }: { children: React.ReactNode }) {
               {item.label}
             </Link>
           ))}
-          <button className="nav-item" onClick={() => setNotice(true)}>
+          <button
+            className="nav-item"
+            onClick={() => router.push("/notifications")}
+          >
             <Bell size={20} />
             Notifications
-            <span className="soon-dot" />
+            {unread.data?.total ? (
+              <span aria-label={`${unread.data.total} unread`}>
+                {unread.data.total}
+              </span>
+            ) : null}
           </button>
           {user && user.role !== "attendee" && (
             <Link
@@ -241,8 +261,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
             </Link>
             <button
               className="icon-button notification-button"
-              aria-label="Notifications — coming soon"
-              onClick={() => setNotice(true)}
+              aria-label="Notifications"
+              onClick={() => router.push("/notifications")}
             >
               <Bell size={20} />
             </button>
@@ -296,24 +316,6 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <span>© {new Date().getFullYear()} Evently</span>
         </footer>
       </div>
-      <Dialog open={notice} onOpenChange={setNotice}>
-        <DialogContent>
-          <span className="feature-icon">
-            <Bell />
-          </span>
-          <DialogTitle className="dialog-title">
-            A little heads-up, soon.
-          </DialogTitle>
-          <DialogDescription className="dialog-description">
-            An in-app notification inbox is on the way. For now, visit My Events
-            to check your registration status. Event emails are sent when the
-            organizer’s email service is configured.
-          </DialogDescription>
-          <Button asChild onClick={() => setNotice(false)}>
-            <Link href="/my-events">Go to My Events</Link>
-          </Button>
-        </DialogContent>
-      </Dialog>
       <Dialog open={organize} onOpenChange={setOrganize}>
         <DialogContent>
           <span className="feature-icon">
@@ -325,9 +327,14 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <DialogDescription className="dialog-description">
             Event creation is available to organizer accounts.{" "}
             {user
-              ? "Ask your administrator to enable organizer access for your account."
+              ? "Submit an organizer application from your account."
               : "Create an account, then ask your administrator for organizer access."}
           </DialogDescription>
+          {user && (
+            <Button asChild>
+              <Link href="/account">Apply to organize</Link>
+            </Button>
+          )}
           {!user && (
             <Button asChild>
               <Link href="/register">Create an account</Link>

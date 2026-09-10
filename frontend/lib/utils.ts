@@ -2,6 +2,19 @@ import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { Temporal } from "@js-temporal/polyfill";
 import type { Event } from "./types";
+const timezoneAliases: Record<string, string> = {
+  "Africa/Asmera": "Africa/Asmara",
+  "America/Godthab": "America/Nuuk",
+  "Asia/Calcutta": "Asia/Kolkata",
+  "Asia/Katmandu": "Asia/Kathmandu",
+  "Asia/Rangoon": "Asia/Yangon",
+  "Europe/Kiev": "Europe/Kyiv",
+  "Pacific/Ponape": "Pacific/Pohnpei",
+  "Pacific/Truk": "Pacific/Chuuk",
+};
+export function canonicalTimeZone(timezone: string) {
+  return timezoneAliases[timezone] ?? timezone;
+}
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
@@ -23,13 +36,15 @@ export function timeLabel(event: Event) {
 }
 export function wallTimeToISO(value: string, timezone: string) {
   return Temporal.PlainDateTime.from(value)
-    .toZonedDateTime(timezone, { disambiguation: "reject" })
+    .toZonedDateTime(canonicalTimeZone(timezone), {
+      disambiguation: "reject",
+    })
     .toInstant()
     .toString();
 }
 export function localInput(iso: string, timezone: string) {
   return Temporal.Instant.from(iso)
-    .toZonedDateTimeISO(timezone)
+    .toZonedDateTimeISO(canonicalTimeZone(timezone))
     .toPlainDateTime()
     .toString()
     .slice(0, 16);

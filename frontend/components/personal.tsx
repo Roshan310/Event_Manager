@@ -12,7 +12,12 @@ import { useAuth } from "./providers";
 import { EventCard } from "./event-card";
 import { Empty, ErrorState, Loading, RequireAuth } from "./feedback";
 import { Button } from "./ui/button";
+import { AccountSaved } from "./saved-account";
 export function Saved() {
+  const { user } = useAuth();
+  return user ? <AccountSaved key={user.id} /> : <GuestSaved />;
+}
+function GuestSaved() {
   const saved = useSaved();
   const queries = useQueries({
     queries: saved.ids.map((id) => ({
@@ -94,29 +99,23 @@ function Registrations() {
   const { user } = useAuth();
   const [tab, setTab] = useState("upcoming");
   const query = useInfiniteQuery({
-    queryKey: ["registrations", "mine", user?.id],
+    queryKey: ["registrations", "mine", user?.id, tab],
     initialPageParam: 0,
     queryFn: ({ pageParam }) =>
       api<Page<Registration>>(
-        "/users/me/registrations?limit=24&offset=" + pageParam,
+        "/users/me/registrations?limit=24&offset=" +
+          pageParam +
+          (tab === "upcoming"
+            ? "&period=upcoming&status=confirmed&sort=starts_at"
+            : tab === "past"
+              ? "&period=past"
+              : "&status=" + tab),
       ),
     getNextPageParam: (last) =>
       last.has_more ? last.offset + last.limit : undefined,
   });
   const rows = query.data?.pages.flatMap((p) => p.items) ?? [];
-  const filtered = rows.filter((r) =>
-    tab === "cancelled"
-      ? r.status === "cancelled"
-      : tab === "waitlisted"
-        ? r.status === "waitlisted"
-        : tab === "past"
-          ? r.status !== "cancelled" &&
-            r.event &&
-            new Date(r.event.ends_at) <= new Date()
-          : r.status === "confirmed" &&
-            r.event &&
-            new Date(r.event.ends_at) > new Date(),
-  );
+  const filtered = rows;
   return (
     <>
       <div className="page-heading">
@@ -208,6 +207,7 @@ function Registrations() {
     </>
   );
 }
+import { AccountSettings } from "./workflows";
 export function Account() {
   const { user, logout } = useAuth();
   return (
@@ -248,10 +248,7 @@ export function Account() {
               <dd className="capitalize">{user.role}</dd>
             </div>
           </dl>
-          <p className="muted-note">
-            Profile editing is coming soon. Contact your administrator for
-            account assistance.
-          </p>
+          <AccountSettings />
           <Button variant="outline" onClick={() => void logout()}>
             <LogOut size={16} />
             Sign out

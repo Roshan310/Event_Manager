@@ -5,11 +5,14 @@ export interface User {
   email: string;
   role: Role;
   is_active: boolean;
+  email_verified: boolean;
   created_at: string;
 }
 export interface Event {
   id: string;
   organizer_id: string;
+  category_id?: string | null;
+  cover_url?: string | null;
   title: string;
   description: string;
   location: string;
@@ -36,6 +39,8 @@ export interface Registration {
   attendee_id: string;
   status: "confirmed" | "waitlisted" | "cancelled";
   created_at: string;
+  checked_in_at?: string | null;
+  queue_position?: number | null;
   event?: Event;
   attendee?: User;
 }

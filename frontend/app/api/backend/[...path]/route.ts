@@ -1,59 +1,73 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { failure, originAllowed, upstream } from "@/lib/server";
-const uuid = "[0-9a-fA-F-]{36}";
-const routes: [RegExp, string[]][] = [
-  [/^events$/, ["GET", "POST"]],
-  [new RegExp(`^events/${uuid}$`), ["GET", "PATCH", "DELETE"]],
-  [new RegExp(`^events/${uuid}/(publish|cancel)$`), ["POST"]],
-  [new RegExp(`^events/${uuid}/registrations$`), ["GET", "POST"]],
-  [new RegExp(`^events/${uuid}/registrations/me$`), ["DELETE"]],
-  [/^organizer\/events$/, ["GET"]],
-  [new RegExp(`^organizer/events/${uuid}$`), ["GET"]],
-  [/^users\/me(\/registrations)?$/, ["GET"]],
-  [/^admin\/users$/, ["GET"]],
-  [new RegExp(`^admin/users/${uuid}/role$`), ["PATCH"]],
-];
+import {
+  clearSession,
+  failure,
+  originAllowed,
+  upstream,
+  boundedBody,
+} from "@/lib/server";
+import { proxyAllowed, publicEndpoint } from "@/lib/proxy-contract";
 async function handler(
   request: Request,
   { params }: { params: Promise<{ path: string[] }> },
 ) {
   const path = (await params).path.join("/");
-  if (
-    !routes.some(
-      ([pattern, methods]) =>
-        pattern.test(path) && methods.includes(request.method),
-    )
-  )
-    return failure("Not found.", 404);
+  if (!proxyAllowed(path, request.method)) return failure("Not found.", 404);
   if (request.method !== "GET" && !originAllowed(request))
     return failure("Invalid request origin.", 403);
   const token = (await cookies()).get("evently_access")?.value;
-  const publicRead =
-    request.method === "GET" &&
-    (path === "events" || new RegExp(`^events/${uuid}$`).test(path));
-  if (!publicRead && !token) return failure("Please sign in.", 401);
+  const isPublic = publicEndpoint(path, request.method);
+  if (!isPublic && !token) return failure("Please sign in.", 401);
   try {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    if (token && !publicRead) headers.Authorization = `Bearer ${token}`;
+    const headers = new Headers();
+    const contentType = request.headers.get("content-type");
+    if (contentType) headers.set("Content-Type", contentType);
+    if (token && !isPublic) headers.set("Authorization", `Bearer ${token}`);
+    const body =
+      request.method === "GET"
+        ? undefined
+        : await boundedBody(
+            request,
+            path.endsWith("/cover") ? 6 * 1024 * 1024 : 65536,
+          );
     const res = await upstream("/" + path + new URL(request.url).search, {
       method: request.method,
       headers,
-      body: ["POST", "PATCH"].includes(request.method)
-        ? await request.text()
-        : undefined,
+      body,
     });
-    return new NextResponse(res.status === 204 ? null : await res.text(), {
+    const outgoing = new Headers({
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+    });
+    for (const key of [
+      "content-type",
+      "content-disposition",
+      "x-request-id",
+      "retry-after",
+      "x-ratelimit-limit",
+      "x-ratelimit-remaining",
+      "x-ratelimit-reset",
+    ]) {
+      const value = res.headers.get(key);
+      if (value) outgoing.set(key, value);
+    }
+    if (res.ok && ["auth/change-password", "auth/logout-all"].includes(path))
+      await clearSession();
+    return new NextResponse(res.status === 204 ? null : res.body, {
       status: res.status,
-      headers: {
-        "Content-Type": "application/json",
-        "Cache-Control": "no-store",
-      },
+      headers: outgoing,
     });
-  } catch {
-    return failure();
+  } catch (error) {
+    return error instanceof RangeError
+      ? failure("Request body is too large.", 413)
+      : failure();
   }
 }
-export { handler as GET, handler as POST, handler as PATCH, handler as DELETE };
+export {
+  handler as GET,
+  handler as POST,
+  handler as PATCH,
+  handler as DELETE,
+  handler as PUT,
+};
